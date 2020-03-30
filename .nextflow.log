@@ -1,0 +1,34 @@
+Mar-30 10:58:40.922 [main] DEBUG nextflow.cli.Launcher - $> nextflow run test1.nf
+Mar-30 10:58:41.145 [main] INFO  nextflow.cli.CmdRun - N E X T F L O W  ~  version 20.01.0
+Mar-30 10:58:41.158 [main] INFO  nextflow.cli.CmdRun - Launching `test1.nf` [jovial_jennings] - revision: 33cc9bdcc5
+Mar-30 10:58:41.185 [main] DEBUG nextflow.config.ConfigBuilder - Found config local: /hpcdata/bcbb/huangk/DATA_ANALYSIS/nextflow/gris_ngs_preprocess/nextflow.config
+Mar-30 10:58:41.187 [main] DEBUG nextflow.config.ConfigBuilder - Parsing config file: /hpcdata/bcbb/huangk/DATA_ANALYSIS/nextflow/gris_ngs_preprocess/nextflow.config
+Mar-30 10:58:41.214 [main] DEBUG nextflow.config.ConfigBuilder - Applying config profile: `standard`
+Mar-30 10:58:41.751 [main] DEBUG nextflow.Session - Session uuid: dfcc99a2-7f96-4cd0-b30c-e32a74a0e1e4
+Mar-30 10:58:41.752 [main] DEBUG nextflow.Session - Run name: jovial_jennings
+Mar-30 10:58:41.753 [main] DEBUG nextflow.Session - Executor pool size: 2
+Mar-30 10:58:42.045 [main] DEBUG nextflow.cli.CmdRun - 
+  Version: 20.01.0 build 5264
+  Created: 12-02-2020 10:14 UTC (05:14 EDT)
+  System: Linux 3.10.0-327.36.1.el7.x86_64
+  Runtime: Groovy 2.5.8 on Java HotSpot(TM) 64-Bit Server VM 1.8.0_192-b12
+  Encoding: UTF-8 (UTF-8)
+  Process: 25552@ai-submit1.cm.cluster [156.40.177.31]
+  CPUs: 2 - Mem: 251.8 GB (232.7 GB) - Swap: 16 GB (14.2 GB)
+Mar-30 10:58:42.092 [main] DEBUG nextflow.Session - Work-dir: /hpcdata/bcbb/huangk/DATA_ANALYSIS/nextflow/gris_ngs_preprocess/work [gpfs]
+Mar-30 10:58:42.092 [main] DEBUG nextflow.Session - Script base path does not exist or is not a directory: /hpcdata/bcbb/huangk/DATA_ANALYSIS/nextflow/gris_ngs_preprocess/bin
+Mar-30 10:58:42.121 [main] DEBUG nextflow.Session - Observer factory: TowerFactory
+Mar-30 10:58:42.123 [main] DEBUG nextflow.Session - Observer factory: DefaultObserverFactory
+Mar-30 10:58:42.323 [main] DEBUG nextflow.Session - Session start invoked
+Mar-30 10:58:42.463 [main] DEBUG nextflow.script.ScriptRunner - > Launching execution
+Mar-30 10:58:42.486 [main] DEBUG nextflow.Session - Workflow process names [dsl1]: 
+Mar-30 10:58:42.491 [main] DEBUG nextflow.script.ScriptRunner - > Await termination 
+Mar-30 10:58:42.491 [main] DEBUG nextflow.Session - Session await
+Mar-30 10:58:42.491 [main] DEBUG nextflow.Session - Session await > all process finished
+Mar-30 10:58:42.491 [main] DEBUG nextflow.Session - Session await > all barriers passed
+Mar-30 10:58:42.504 [main] DEBUG nextflow.trace.WorkflowStatsObserver - Workflow completed > WorkflowStats[succeededCount=0; failedCount=0; ignoredCount=0; cachedCount=0; pendingCount=0; submittedCount=0; runningCount=0; retriesCount=0; abortedCount=0; succeedDuration=0ms; failedDuration=0ms; cachedDuration=0ms;loadCpus=0; loadMemory=0; peakRunning=0; peakCpus=0; peakMemory=0; ]
+Mar-30 10:58:42.504 [main] DEBUG nextflow.trace.ReportObserver - Flow completing -- rendering html report
+Mar-30 10:58:42.509 [main] DEBUG nextflow.trace.ReportObserver - Execution report summary data:
+  []
+Mar-30 10:58:43.375 [main] DEBUG nextflow.CacheDB - Closing CacheDB done
+Mar-30 10:58:43.419 [main] DEBUG nextflow.script.ScriptRunner - > Execution complete -- Goodbye
