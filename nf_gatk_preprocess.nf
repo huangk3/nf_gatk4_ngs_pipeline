@@ -30,7 +30,7 @@ log.info "Nextflow Version:     $workflow.nextflow.version"
 log.info "Command Line:         $workflow.commandLine"
 log.info "========================================="
 
-Channel.fromFilePairs("/nethome/huangk3/bcbb/Andrew_Demo/WESTrainingCourse/dad/dad.*{1,2}.fq").map{item -> item[1]}.into{fastqPairs; extractSampleSizes}
+Channel.fromFilePairs("/nethome/huangk3/bcbb/Andrew_Demo/WESTrainingCourse/daughter*/*{1,2}.fq").map{item -> item[1]}.into{fastqPairs; extractSampleSizes}
 
 N=extractSampleSizes.count()
 
@@ -154,22 +154,24 @@ sampleID_list.collectFile(newLine: true, storeDir: "${OUTDIR}/${BATCH}") {item->
 }
 
 sampleID_mapping.collectFile(newLine: true, storeDir: "${OUTDIR}/${BATCH}") {item->
-  ["${BATCH}.gVCF.mapping.txt", item + "\t" + item + ".g.vcf.gz"]
+  ["${BATCH}.gVCF.mapping.txt", item + "\t" + "${OUTDIR}/${BATCH}/"+ item +"/HaplotypeCaller/" + item + ".g.vcf.gz"]
 }
 
-runHaplotypeCallerOut_grouped_by_batch = runHaplotypeCallerOut.groupTuple(by: [0])
-
+//runHaplotypeCallerOut_grouped_by_batch = runHaplotypeCallerOut.groupTuple(by: [0])
+total_intervals = Channel.fromPath("${TARGETS}").countLines()
 process runDynamicallyCombineIntervals {
   publishDir "${OUTDIR}/${BATCH}/splittedIntervals/"
   input:
     val n from N
+    val total from total_intervals
 
   output:
     file("p*.intervals") into runDynamicallyCombineIntervalsOut
 
   script:
+    lines_per_file =  (1 + total / (n + 30)).toInteger()
     """
-      split -d -a4 -n $n --additional-suffix ".intervals" ${TARGETS} "p"
+      split -d -a4 -l $lines_per_file --additional-suffix ".intervals" ${TARGETS} "p"
     """
 }
 
@@ -180,7 +182,7 @@ process runGenomicsDBImport {
   publishDir "${OUTDIR}/${BATCH}/GenomicsDB"
 
   input:
-    tuple BATCH, gvcf_list, gvcf_index_list from runHaplotypeCallerOut_grouped_by_batch
+    tuple BATCH, file(gvcf), file(gvcf_index) from runHaplotypeCallerOut
     each file(interval) from runDynamicallyCombineIntervalsOut
   output:
     tuple BATCH, p, file(interval), file(genomeDb) into runGenomicsDBImportOut
@@ -189,8 +191,8 @@ process runGenomicsDBImport {
     p = interval.getSimpleName()
     genomeDb = BATCH + "." + p + ".genomeDb"
   """
-    \$EBROOTGATK/gatk GenomicsDBImport -V ${gvcf_list.join(" -V ")} --genomicsdb-workspace-path ${genomeDb} \
-    --overwrite-existing-genomicsdb-workspace true --batch-size 50 -ip ${params.ip} -L ${interval} --sample-name-map ${BATCH}.gVCF.mapping.txt
+    \$EBROOTGATK/gatk GenomicsDBImport --genomicsdb-workspace-path ${genomeDb} \
+    --overwrite-existing-genomicsdb-workspace true --batch-size 50 -ip ${params.ip} -L ${interval} --sample-name-map ${OUTDIR}/${BATCH}/${BATCH}.gVCF.mapping.txt
   """ 
 }
 
@@ -224,7 +226,7 @@ process runSortVcfs {
   input:
     tuple BATCH, p_list, vcf_list, vcf_index_list from runGenotypeGVCFsOut_group_by_batch
   output:
-    tuple file(outVcf), file(outVcf_index) into runSortVcfsOut, ApplyRecalibration  
+    tuple file(outVcf), file(outVcf_index) into runSortVcfsOut, ApplyVQSR  
   script:
     outVcf = BATCH + ".vcf.gz"
     outVcf_index = BATCH + ".vcf.gz.tbi"
@@ -234,11 +236,29 @@ process runSortVcfs {
   """
 } 
 
+process runHardFilterAndMakeSitesOnlyVcf {
+  tag "$BATCH"
+  label "mediumcpu"
+  publishDir "${OUTDIR}/${BATCH}/VCF"
+  input:
+    tuple file(vcf), file(vcf_index) from runSortVcfsOut
+  output:
+    tuple file(sitesOnly_vcf), file(sitesOnly_vcf_index) into (snvRecal, indelRecal)
+  script:
+    sitesOnly_vcf = BATCH+".siteOnly.vcf.gz"
+    sitesOnly_vcf_index = BATCH+".siteOnly.vcf.gz.tbi"
+    filtered_vcf = BATCH+".filtered.vcf.gz"
+    filtered_vcf_index = BATCH+".filtered.vcf.gz.tbi"
+    """
+      \$EBROOTGATK/gatk VariantFiltration --filter-expression "ExcessHet > ${params.excess_het_threshold}" --filter-name ExcessHet -O ${filtered_vcf} -V ${vcf}
+      java -jar \${EBROOTPICARD}/picard.jar MakeSitesOnlyVcf INPUT= ${filtered_vcf} OUTPUT=${sitesOnly_vcf}
+    """
+}
+
 process runIndelRecal {
   tag "$BATCH"
   label "highmem"
   publishDir "${OUTDIR}/${BATCH}/VQSR"
-  echo true
   input:
     tuple file(vcf), file(vcf_index) from indelRecal
   output:
@@ -253,6 +273,7 @@ process runIndelRecal {
     -mode INDEL --max-gaussians 4 -resource mills,known=false,training=true,truth=true,prior=12:${MILLS} \
     -resource axiomPoly,known=false,training=true,truth=false,prior=10:${AXIOM} \
     -resource dbsnp,known=true,training=false,truth=false,prior=2:${DBSNP}
+  """
 }
 
 process runSnvRecal {
@@ -276,37 +297,18 @@ process runSnvRecal {
     -resource omni,known=false,training=true,truth=true,prior=12:${OMINI} \
     -resource 1000G,known=false,training=true,truth=false,prior=10:${OneThousand} \
     -resource dbsnp,known=true,training=false,truth=false,prior=7:${DBSNP}
+  """
 }
 
 
-
-process runHardFilterAndMakeSitesOnlyVcf {
-  tag "$BATCH"
-  label "mediumcpu"
-  publishDir "${OUTDIR}/${BATCH}/VCF"
-  input:
-    tuple BATCH, file(vcf), file(vcf_index) from runSortVcfsOut
-  output:
-    tuple BATCH, file(sitesOnly_vcf), file(sitesOnly_vcf_index) into snvRecal, indelRecal
-  script:
-    sitesOnly_vcf = BATCH+".siteOnly.vcf.gz"
-    sitesOnly_vcf_index = BATCH+".siteOnly.vcf.gz.tbi"
-    filtered_vcf = BATCH+".filtered.vcf.gz"
-    filtered_vcf_index = BATCH+".filtered.vcf.gz.tbi"
-    """
-      \$EBROOTGATK/gatk VariantFiltration --filter-expression "ExcessHet > ${params.excess_het_threshold}" --filter-name ExcessHet -O ${filtered_vcf} -V ${vcf}
-      java -jar \${EBROOTPICARD}/picard.jar MakeSitesOnlyVcf INPUT= ${filtered_vcf} OUTPUT=${sitesOnly_vcf}
-    """
-}
-
-process runApplyRecalibration {
+process runApplyVQSR {
   tag "$BATCH"
   label "highmem"
   publishDir "${OUTDIR}/${BATCH}/VCF"
   input:
     tuple file(indel_recal), file(indel_recal_index), file(indel_tranches) from runIndelRecalOut
     tuple file(snv_recal), file(snv_recal_index), file(snv_tranches) from runSnvRecalOut
-    tuple file(vcf), file(vcf_index) from ApplyRecalibration
+    tuple file(vcf), file(vcf_index) from ApplyVQSR
   output:
     tuple file(recal_vcf), file(recal_vcf_index) into runApplyRecalibrationOut
   script:
