@@ -1,0 +1,15 @@
+name: gris-ngs-v0.1
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - fastqc=0.11.8
+  - picard=2.22.2
+  - bwa=0.7.17
+  - multiqc=1.8
+  - gatk4=4.1.6.0
+  - samtools=1.9
+  - bcftools=1.9
+  - htslib=1.9
+
