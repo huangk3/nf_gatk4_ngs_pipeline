@@ -24,8 +24,8 @@ snp_recal_anno_values = params.snv_recal_annotation_values
 indel_recal_tranche_values = params.indel_recal_tranche_values
 indel_recal_anno_values = params.indel_recal_annotation_values
 BATCH = params.batch
-dbNSFP_dir = file("/sysapps/cluster/software/VEP/84-goolf-1.7.20/.vep/dbNSFP/2.9.3")
-
+// for hg19: dbNSFP_dir = file("/sysapps/cluster/software/VEP/84-goolf-1.7.20/.vep/dbNSFP/2.9.3")
+dbNSFP_dir = file("params.dbnsfpDir")
 logParams(params, "nextflow_parameters.txt")
 
 VERSION = "0.1"
@@ -45,9 +45,10 @@ Channel.fromPath("/nethome/huangk3/bcbb/DATA_ANALYSIS/nextflow/BAMs/P00*.bam").i
 N=extractSampleSizes.count()
 
 process runBam2Fastq {
-  label "mediumcpu"
-  publishDir "${OUTDIR}/${BATCH}/Bam2Fastq/${sampleID}"
-  conda "samtools"
+  tag "${BATCH}|${sampleID}"
+  label "highmem"
+  publishDir "${OUTDIR}/${BATCH}/Bam2Fastq/${sampleID}", mode: 'copy' 
+  conda "picard"
   input:
     file(bam) from bams
   output:
@@ -58,10 +59,10 @@ process runBam2Fastq {
     fq2 = sampleID + ".R2.fq.gz"
     unpaired_reads = sampleID + ".singleton.fq.gz"
       """
-        samtools fastq -t -@4 -1 ${fq1} -2 ${fq2} -s ${unpaired_reads} ${bam}
+        picard -Xmx70g -XX:ParallelGCThreads=2 SamToFastq I=${bam} FASTQ=${fq1} SECOND_END_FASTQ=${fq2} UNPAIRED_FASTQ=${unpaired_reads} MAX_RECORDS_IN_RAM=450000
       """
 }
-
+//samtools fastq -t -@4 -1 ${fq1} -2 ${fq2} -s ${unpaired_reads} ${bam}
 // ------------------------------------------------------------------------------------------------------------
 //
 // Preprocess reads
@@ -75,7 +76,7 @@ process runBam2Fastq {
 process runFastqToBam {
   tag "${BATCH}|${sampleID}"
   label "highcpu"
-  publishDir "${OUTDIR}/${BATCH}/FastqToSam/${sampleID}/"
+  publishDir "${OUTDIR}/${BATCH}/FastqToSam/${sampleID}/", mode: 'copy'
   conda "bwa picard"
   input: 
     tuple sampleID, file(fq1), file(fq2), file(singleton_reads) from runBam2FastqOut
@@ -87,14 +88,15 @@ process runFastqToBam {
     outBai = sampleID + ".sorted.bai"
     """
       bwa mem -t 8 -R "@RG\\tID:${sampleID}\\tLB:${sampleID}\\tSM:${sampleID}\\tPL:ILLUMINA" ${REF}  ${fq1} ${fq2} | \
-      picard -Xmx32G SortSam I=/dev/stdin O=${outBam} \
+      picard -Xmx40G -XX:ParallelGCThreads=2 SortSam I=/dev/stdin O=${outBam} \
       MAX_RECORDS_IN_RAM=1000000 CREATE_INDEX=true VALIDATION_STRINGENCY=LENIENT SORT_ORDER=coordinate
     """
 }
 
 process runFastQC {
   tag "${BATCH}|${sampleID}"
-  publishDir "${OUTDIR}/${BATCH}/FastQC/${sampleID}/"
+  label "mediumcpu"
+  publishDir "${OUTDIR}/${BATCH}/FastQC/${sampleID}/", mode: 'copy'
   conda "fastqc"	    
   input:
     tuple sampleID, file(bam), file(bai) from runFastQCIn
@@ -106,15 +108,15 @@ process runFastQC {
   script:
 
     """
-      fastqc -t 1 -o . -f bam ${bam}
+      fastqc -t 4 -o . -f bam ${bam}
     """
 }
 
 
 process runMarkDuplicates {
   tag "${BATCH}|${sampleID}"
-  label "mediumcpu"
-  publishDir "${OUTDIR}/${BATCH}/MarkDuplicate/${sampleID}/"
+  label "highmem"
+  publishDir "${OUTDIR}/${BATCH}/MarkDuplicate/${sampleID}/", mode: 'copy'
   conda "picard"
   input:
     tuple sampleID, file(bam), file(bai) from runFastqToBamOut
@@ -127,16 +129,16 @@ process runMarkDuplicates {
     outBai = sampleID + ".markdup.bai"
     outMetrics = sampleID + ".markdup.metrics.txt" 
   """
-    picard -Xmx32G MarkDuplicates I=${bam} O=${outBam} \
-    VALIDATION_STRINGENCY=LENIENT AS=true CREATE_INDEX=true M=${outMetrics} 
+    picard -Xmx70g -XX:ParallelGCThreads=2 MarkDuplicates I=${bam} O=${outBam} \
+    VALIDATION_STRINGENCY=LENIENT AS=true CREATE_INDEX=true M=${outMetrics} MAX_RECORDS_IN_RAM=450000 
   """
 }
 
 
 process runDepthOfCoverage {
   tag "${BATCH}|${sampleID}"
-  label "mediumcpu"
-  publishDir "${OUTDIR}/${BATCH}/DepthOfCoverage/${sampleID}/"
+  label "mediummem"
+  publishDir "${OUTDIR}/${BATCH}/DepthOfCoverage/${sampleID}/", mode: 'copy'
   input:
     tuple sampleID, file(bam), file(bai), file(outMetrics) from runDepthOfCoverageIn
 
@@ -147,7 +149,7 @@ process runDepthOfCoverage {
   """
     module purge
     module load gatk/3.8.1-Java-1.8.0_92
-    java -Xmx32G -jar \${EBROOTGATK}/GenomeAnalysisTK.jar -R ${REF} -T DepthOfCoverage -I ${bam} -geneList:REFSEQ ${params.geneList} -mmq 20 -mbq 10 -omitBaseOutput \
+    java -Xmx30g -XX:ParallelGCThreads=2 -jar \${EBROOTGATK}/GenomeAnalysisTK.jar -R ${REF} -T DepthOfCoverage -I ${bam} -geneList:REFSEQ ${params.geneList} -mmq 20 -mbq 10 -omitBaseOutput \
     --outputFormat csv -L ${TARGETS} -ct 8 -ct 10 -ct 20 -ct 100 -o ${sampleID}
   """
 }
@@ -155,8 +157,8 @@ process runDepthOfCoverage {
 
 process runBaseRecalibrator {
   tag "$BATCH|$sampleID"
-  label "mediumcpu"
-  publishDir "${OUTDIR}/${BATCH}/BQSR/${sampleID}/"
+  label "mediummem"
+  publishDir "${OUTDIR}/${BATCH}/BQSR/${sampleID}/", mode: 'copy'
   conda "gatk4"
   input:
     tuple sampleID, file(bam) , file(bai), file(mkdup_metrics) from runMarkDuplicateOut
@@ -168,14 +170,14 @@ process runBaseRecalibrator {
     recal_table=sampleID + ".recal_data.table"
     
     """
-      gatk -Xmx32G BaseRecalibrator -R ${REF} -I ${bam} -O ${recal_table} --known-sites ${DBSNP} --known-sites ${OneThousand} -known-sites ${MILLS}
+      gatk --java-options "-Xmx30g -XX:ParallelGCThreads=1" BaseRecalibrator -R ${REF} -I ${bam} -O ${recal_table} --known-sites ${DBSNP} --known-sites ${OneThousand} -known-sites ${MILLS}
     """
 }
 
 process runApplyBQSR {
   tag "$BATCH|$sampleID"
-  label "highmem"
-  publishDir "${OUTDIR}/${BATCH}/BQSR/${sampleID}/"
+  label "mediumcpu"
+  publishDir "${OUTDIR}/${BATCH}/BQSR/${sampleID}/", mode: 'copy'
   conda "gatk4"
   input:
     tuple sampleID, file(bam) , file(bai), file(recal_table) from runBaseRecalibratorOut
@@ -188,7 +190,7 @@ process runApplyBQSR {
     outBai = sampleID + ".bqsr.bai"
 
     """
-      gatk -Xmx32G ApplyBQSR -R ${REF} -I ${bam} -bqsr ${recal_table} -O ${outBam}
+      gatk --java-options "-Xmx20g -XX:ParallelGCThreads=1" ApplyBQSR -R ${REF} -I ${bam} -bqsr ${recal_table} -O ${outBam}
     """
 }
 
@@ -196,8 +198,8 @@ Channel.from('chr1', 'chr2', 'chr3', 'chr4', 'chr5', 'chr6', 'chr7', 'chr8', 'ch
 
 process runHaplotypeCaller {
   tag "$BATCH|$sampleID"
-  label "mediumcpu"
-  publishDir "${OUTDIR}/${BATCH}/gVCF/${sampleID}/"
+  label "mediummem"
+  publishDir "${OUTDIR}/${BATCH}/gVCF/${sampleID}/", mode: 'copy'
   conda "gatk4"
   input:
     tuple sampleID, file(bam) , file(bai) from runApplyBQSROut
@@ -211,7 +213,7 @@ process runHaplotypeCaller {
     gvcf_index = sampleID + ".g.vcf.gz.tbi"
 
     """
-      gatk -Xmx32G HaplotypeCaller -R ${REF} -I ${bam} -O ${gvcf} -stand-call-conf 30 --dbsnp ${DBSNP} -L ${TARGETS} -ERC GVCF
+      gatk --java-options "-Xmx30g -XX:ParallelGCThreads=1" HaplotypeCaller -R ${REF} -I ${bam} -O ${gvcf} -stand-call-conf 30 --dbsnp ${DBSNP} -L ${TARGETS} -ERC GVCF
       tabix -p vcf -f ${gvcf}
     """
 }
@@ -246,7 +248,7 @@ sampleID_list.collectFile(newLine: true, storeDir: "${OUTDIR}/${BATCH}") {item->
 
 process runGenomicsDBImport {
   tag "${BATCH}|${chr}"
-  label "highcpu"
+  label "mediumcpu"
   publishDir "${OUTDIR}/${BATCH}/GenomicsDB"
   conda "gatk4"
   input:
@@ -260,7 +262,7 @@ process runGenomicsDBImport {
 //  p = interval.getSimpleName()
     genomeDb = BATCH + ".chr" + chr + ".genomeDb"
   """
-    gatk -Xmx32G GenomicsDBImport --genomicsdb-workspace-path ${genomeDb} --overwrite-existing-genomicsdb-workspace true \
+    gatk --java-options "-Xmx20g -XX:ParallelGCThreads=1" GenomicsDBImport --genomicsdb-workspace-path ${genomeDb} --overwrite-existing-genomicsdb-workspace true \
     --batch-size 50 -L ${chr} ${gvcf.collect { "-V $it " }.join()}
   """ 
 }
@@ -280,7 +282,7 @@ process runGenotypeGVCFs {
     outVcf = BATCH + ".chr" + chr + ".vcf.gz"
     outVcf_index = BATCH + ".chr" + chr + ".vcf.gz.tbi"
   """
-    gatk -Xmx32G GenotypeGVCFs -R ${REF} -V gendb://${genomeDb} -O ${outVcf} -G StandardAnnotation --only-output-calls-starting-in-intervals -L ${chr}
+    gatk --java-options "-Xmx20g -XX:ParallelGCThreads=2" GenotypeGVCFs -R ${REF} -V gendb://${genomeDb} -O ${outVcf} -G StandardAnnotation --only-output-calls-starting-in-intervals -L ${chr}
   """
 }
 
@@ -289,25 +291,25 @@ runGenotypeGVCFsOut_group_by_batch=runGenotypeGVCFsOut.groupTuple(by: [0])
 process runSortVcfs {
   tag "$BATCH"
   label "mediumcpu"
-  publishDir "${OUTDIR}/${BATCH}/VCF"
+  publishDir "${OUTDIR}/${BATCH}/VCF", mode: 'copy'
   conda "gatk4"
   input:
     tuple BATCH, chr_list, vcf_list, vcf_index_list from runGenotypeGVCFsOut_group_by_batch
   output:
-    tuple file(outVcf), file(outVcf_index) into runSortVcfsOut, ApplyVQSR  
+    tuple file(outVcf), file(outVcf_index) into runSortVcfsOut, runApplyVQSRIn  
   script:
     outVcf = BATCH + ".vcf.gz"
     outVcf_index = BATCH + ".vcf.gz.tbi"
     
   """
-    gatk -Xmx32G SortVcf --INPUT ${vcf_list.join(" --INPUT ")} --OUTPUT ${outVcf} --SEQUENCE_DICTIONARY ${REF_DIC}
+    gatk --java-options "-Xmx20g -XX:ParallelGCThreads=1" SortVcf --INPUT ${vcf_list.join(" --INPUT ")} --OUTPUT ${outVcf} --SEQUENCE_DICTIONARY ${REF_DIC}
   """
 } 
 
 process runHardFilterAndMakeSitesOnlyVcf {
   tag "$BATCH"
   label "mediumcpu"
-  publishDir "${OUTDIR}/${BATCH}/VCF"
+  publishDir "${OUTDIR}/${BATCH}/VCF", mode: 'copy'
   conda "gatk4 picard"
   input:
     tuple file(vcf), file(vcf_index) from runSortVcfsOut
@@ -319,16 +321,15 @@ process runHardFilterAndMakeSitesOnlyVcf {
     filtered_vcf = BATCH+".filtered.vcf.gz"
     filtered_vcf_index = BATCH+".filtered.vcf.gz.tbi"
     """
-      gatk -Xmx32G VariantFiltration --filter-expression "ExcessHet > ${params.excess_het_threshold}" --filter-name ExcessHet -O ${filtered_vcf} -V ${vcf}
-      picard -Xmx32G MakeSitesOnlyVcf INPUT= ${filtered_vcf} OUTPUT=${sitesOnly_vcf}
+      gatk --java-options "-Xmx15g -XX:ParallelGCThreads=1" VariantFiltration --filter-expression "ExcessHet > ${params.excess_het_threshold}" --filter-name ExcessHet -O ${filtered_vcf} -V ${vcf}
+      picard -Xmx15g MakeSitesOnlyVcf INPUT= ${filtered_vcf} OUTPUT=${sitesOnly_vcf}
     """
 }
 
 process runIndelRecal {
   tag "$BATCH"
-  label "mediumcpu"
-  publishDir "${OUTDIR}/${BATCH}/VQSR"
-  conda "gatk4"
+  label "mediummem"
+  publishDir "${OUTDIR}/${BATCH}/VQSR", mode: 'copy'
   input:
     tuple file(vcf), file(vcf_index) from indelRecal
   output:
@@ -339,20 +340,19 @@ process runIndelRecal {
     indel_tranches = BATCH + ".indel.tranches"
   """
     module load gatk/4.0-8-Java-1.8.0_92
-    \$EBROOTGATK/gatk -Xmx32G VariantRecalibrator -R ${REF} -V ${vcf} --output ${indel_recal} --tranches-file ${indel_tranches} --trust-all-polymorphic \
-    -an ${indel_recal_anno_values.join(" -an ")} -tranche ${indel_recal_tranche_values.join(" -tranche ")} \
-    -mode INDEL --max-gaussians 4 --resource mills,known=false,training=true,truth=true,prior=12:${MILLS} \
-    --resource axiomPoly,known=false,training=true,truth=false,prior=10:${AXIOM} \
-    --resource dbsnp,known=true,training=false,truth=false,prior=2:${DBSNP}
+    \$EBROOTGATK/gatk --java-options "-Xmx40g -XX:ParallelGCThreads=2" VariantRecalibrator -R ${REF} -V ${vcf} --output ${indel_recal} --tranches-file ${indel_tranches} --trust-all-polymorphic \
+    --ignore-all-filters true -an ${indel_recal_anno_values.join(" -an ")} -tranche ${indel_recal_tranche_values.join(" -tranche ")} \
+    -mode INDEL --max-gaussians 4 \
+    -resource mills,known=false,training=true,truth=true,prior=12:${MILLS} \
+    -resource axiomPoly,known=false,training=true,truth=false,prior=10:${AXIOM} \
+    -resource dbsnp,known=true,training=false,truth=false,prior=2:${DBSNP}
   """
 }
 
 process runSnvRecal {
   tag "$BATCH"
-  label "mediumcpu"
-  publishDir "${OUTDIR}/${BATCH}/VQSR"
-  
-  echo true
+  label "mediummem"
+  publishDir "${OUTDIR}/${BATCH}/VQSR", mode: 'copy'
   input:
     tuple file(vcf), file(vcf_index) from snvRecal
   output:
@@ -363,12 +363,13 @@ process runSnvRecal {
     snv_tranches = BATCH + ".snv.tranches"
   """
     module load gatk/4.0-8-Java-1.8.0_92
-    \$EBROOTGATK/gatk -Xmx32G --java-options '-DGATK_STACKTRACE_ON_USER_EXCEPTION=true' VariantRecalibrator -R ${REF} -V ${vcf} --output ${snv_recal} --tranches-file ${snv_tranches} --trust-all-polymorphic \
-    -an ${snp_recal_anno_values.join(" -an ")} -tranche ${snp_recal_tranche_values.join(" -tranche ")} \
-    -mode SNP --max-gaussians 6 --resource hapmap,known=false,training=true,truth=true,prior=15:${HAPMAP} \
-    --resource omni,known=false,training=true,truth=true,prior=12:${OMINI} \
-    --resource 1000G,known=false,training=true,truth=false,prior=10:${OneThousand} \
-    --resource dbsnp,known=true,training=false,truth=false,prior=7:${DBSNP}
+    \$EBROOTGATK/gatk --java-options '-DGATK_STACKTRACE_ON_USER_EXCEPTION=true -Xmx30g -XX:ParallelGCThreads=2' VariantRecalibrator -R ${REF} -V ${vcf} --output ${snv_recal} --tranches-file ${snv_tranches} --trust-all-polymorphic \
+    --ignore-all-filters true -an ${snp_recal_anno_values.join(" -an ")} -tranche ${snp_recal_tranche_values.join(" -tranche ")} \
+    -mode SNP --max-gaussians 6 \
+    -resource hapmap,known=false,training=true,truth=true,prior=15:${HAPMAP} \
+    -resource omni,known=false,training=true,truth=true,prior=12:${OMINI} \
+    -resource 1000G,known=false,training=true,truth=false,prior=10:${OneThousand} \
+    -resource dbsnp,known=true,training=false,truth=false,prior=7:${DBSNP}
   """
 }
 
@@ -376,23 +377,22 @@ process runSnvRecal {
 process runApplyVQSR {
   tag "$BATCH"
   label "highcpu"
-  publishDir "${OUTDIR}/${BATCH}/VCF"
+  publishDir "${OUTDIR}/${BATCH}/VCF", mode: 'copy'
   conda "gatk4"
   input:
     tuple file(indel_recal), file(indel_recal_index), file(indel_tranches) from runIndelRecalOut
     tuple file(snv_recal), file(snv_recal_index), file(snv_tranches) from runSnvRecalOut
-    tuple file(vcf), file(vcf_index) from ApplyVQSR
+    tuple file(vcf), file(vcf_index) from runApplyVQSRIn
   output:
     tuple file(recal_vcf), file(recal_vcf_index) into (runApplyRecalibrationOut, runNormalizationIn)
   script:
     recal_vcf = BATCH + ".recal.vcf.gz"
     recal_vcf_index = BATCH + ".recal.vcf.gz.tbi"
     """
-      module load gatk/4.0-8-Java-1.8.0_92
-      gatk -Xmx32G ApplyVQSR -O tmp.indel.recalibrated.vcf -V ${vcf} --recal-file ${indel_recal} --tranches-file ${indel_tranches} \
+      gatk --java-options "-Xmx40g -XX:ParallelGCThreads=2" ApplyVQSR -O tmp.indel.recalibrated.vcf -V ${vcf} --recal-file ${indel_recal} --tranches-file ${indel_tranches} \
       --truth-sensitivity-filter-level ${params.indel_filter_level} -create-output-variant-index true -mode INDEL
 
-      gatk -Xmx32G ApplyVQSR -O ${recal_vcf} -V tmp.indel.recalibrated.vcf --recal-file ${snv_recal} --tranches-file ${snv_tranches} \
+      \$EBROOTGATK/gatk --java-options "-Xmx40g -XX:ParallelGCThreads=2" ApplyVQSR -O ${recal_vcf} -V tmp.indel.recalibrated.vcf --recal-file ${snv_recal} --tranches-file ${snv_tranches} \
       --truth-sensitivity-filter-level ${params.snp_filter_level} --create-output-variant-index true -mode SNP
     """
 }
@@ -402,14 +402,14 @@ process runCollectVariantCallMetrics {
   tag "$BATCH"
   label "mediumcpu"
   conda "picard"
-  publishDir "${OUTDIR}/${BATCH}/VariantCallingStats"
+  publishDir "${OUTDIR}/${BATCH}/VariantCallingStats", mode: 'copy'
   input:
     tuple file(recal_vcf), file(recal_vcf_index) from runApplyRecalibrationOut
   output:
     file("${BATCH}.variant_calling_detail_metrics") into runCollectVariantCallMetricsOut
   script:
     """
-    picard -Xmx24g CollectVariantCallingMetrics INPUT=${recal_vcf} OUTPUT=${BATCH} DBSNP=${DBSNP} 
+    picard -Xmx15g -XX:ParallelGCThreads=1 CollectVariantCallingMetrics INPUT=${recal_vcf} OUTPUT=${BATCH} DBSNP=${DBSNP} 
     """
 }
 
@@ -417,7 +417,7 @@ process runNormalization {
   tag "$BATCH"
   label "mediumcpu"
   conda "bcftools"
-  publishDir "${OUTDIR}/${BATCH}/VCF"
+  publishDir "${OUTDIR}/${BATCH}/VCF", mode: 'copy'
   input:
     tuple file(recal_vcf), file(recal_vcf_index) from runNormalizationIn 
   output:
@@ -479,7 +479,7 @@ process runVEP {
 
 process runCombineVEPVcf {
   tag "$BATCH"
-  publishDir "${OUTDIR}/${BATCH}/VCF"
+  publishDir "${OUTDIR}/${BATCH}/VCF", mode: 'copy'
   label "mediumcpu"
   conda "gatk4"
   input:
@@ -491,7 +491,7 @@ process runCombineVEPVcf {
     outVcf = BATCH + ".vep.vcf.gz"
     outVcf_index = BATCH + ".vep.vcf.gz.tbi"
     """
-      gatk -Xmx16G SortVcf --INPUT ${vcf.join(" --INPUT ")} --OUTPUT ${outVcf} --SEQUENCE_DICTIONARY ${REF_DIC}
+      gatk --java-options "-Xmx15g -XX:ParallelGCThreads=1" SortVcf --INPUT ${vcf.join(" --INPUT ")} --OUTPUT ${outVcf} --SEQUENCE_DICTIONARY ${REF_DIC}
     """
 }
 
