@@ -200,7 +200,7 @@ process runHaplotypeCaller {
   tag "$BATCH|$sampleID"
   label "mediummem"
   publishDir "${OUTDIR}/${BATCH}/gVCF/${sampleID}/", mode: 'copy'
-  conda "gatk4"
+  conda "gatk4 tabix"
   input:
     tuple sampleID, file(bam) , file(bai) from runApplyBQSROut
 
@@ -392,7 +392,7 @@ process runApplyVQSR {
       gatk --java-options "-Xmx40g -XX:ParallelGCThreads=2" ApplyVQSR -O tmp.indel.recalibrated.vcf -V ${vcf} --recal-file ${indel_recal} --tranches-file ${indel_tranches} \
       --truth-sensitivity-filter-level ${params.indel_filter_level} -create-output-variant-index true -mode INDEL
 
-      \$EBROOTGATK/gatk --java-options "-Xmx40g -XX:ParallelGCThreads=2" ApplyVQSR -O ${recal_vcf} -V tmp.indel.recalibrated.vcf --recal-file ${snv_recal} --tranches-file ${snv_tranches} \
+      gatk --java-options "-Xmx40g -XX:ParallelGCThreads=2" ApplyVQSR -O ${recal_vcf} -V tmp.indel.recalibrated.vcf --recal-file ${snv_recal} --tranches-file ${snv_tranches} \
       --truth-sensitivity-filter-level ${params.snp_filter_level} --create-output-variant-index true -mode SNP
     """
 }
